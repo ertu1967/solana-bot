@@ -5,18 +5,10 @@ import pandas as pd
 import time
 from datetime import datetime
 
-# --- 1. AYARLAR & STİL ---
+# --- 1. AYARLAR ---
 st.set_page_config(page_title="WAR ROOM - ELITE", layout="wide", page_icon="🦁")
 
-# CSS: Simsiyah, Zengin ve Net
-st.markdown("""
-<style>
-    .stApp {background-color: #000000;}
-    .metric-card {background-color: #111; border: 1px solid #333; padding: 15px; border-radius: 8px;}
-    h1, h2, h3 {color: #ffffff; font-family: 'Arial Black', sans-serif;}
-    .stSelectbox label {color: #f0f0f0; font-weight: bold;}
-</style>
-""", unsafe_allow_html=True)
+# Not: Siyah arka plan kodu kaldırıldı. Standart tema geçerli.
 
 # --- 2. ZENGİN PORTFÖY LİSTESİ ---
 COINS = {
@@ -31,14 +23,13 @@ COINS = {
 
 # --- 3. TEKNİK ANALİZ MOTORU ---
 def calculate_indicators(df):
-    # Veri setini temizle (Olası MultiIndex sorununa karşı)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.droplevel(1) 
 
-    # SMA 20 (Trend Yönü)
+    # SMA 20
     df['SMA20'] = df['Close'].rolling(window=20).mean()
     
-    # RSI 14 (Aşırı Alım/Satım)
+    # RSI 14
     delta = df['Close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -54,31 +45,23 @@ refresh_rate = st.sidebar.slider("Yenileme (Sn)", 10, 60, 30)
 # --- 5. ANA EKRAN & VERİ ---
 st.title(f"⚔️ {COINS[selected_ticker]}")
 
-# Veri Çekme
 try:
-    # Progress barı kapatıyoruz
     df = yf.download(selected_ticker, period="5d", interval="15m", progress=False)
     
     if not df.empty:
         df = calculate_indicators(df)
         
-        # Son verileri alırken .iloc kullanarak satıra iniyoruz
         last_bar = df.iloc[-1]
         prev_bar = df.iloc[-2]
         
-        # --- KRİTİK DÜZELTME: Her veriyi zorla float'a çeviriyoruz ---
         price = float(last_bar['Close'])
         prev_price = float(prev_bar['Close'])
         rsi = float(last_bar['RSI'])
         sma = float(last_bar['SMA20'])
-        
-        # Günlük zirve hesabı
         day_high = float(df['High'].tail(96).max()) 
         
-        # Yüzdelik Değişim Hesabı
         degisim = ((price - prev_price) / prev_price) * 100
         
-        # Sinyal Mantığı
         trend = "YUKARI 🚀" if price > sma else "AŞAĞI 🔻"
         rsi_durum = "AŞIRI ALIM (Satış Riski)" if rsi > 70 else "AŞIRI SATIM (Fırsat)" if rsi < 30 else "NÖTR"
         
@@ -97,31 +80,29 @@ try:
                                      low=df['Low'], close=df['Close'], name='Fiyat'))
         
         # Trend Çizgisi
-        fig.add_trace(go.Scatter(x=df.index, y=df['SMA20'], line=dict(color='cyan', width=1.5), name='Trend (SMA20)'))
+        fig.add_trace(go.Scatter(x=df.index, y=df['SMA20'], line=dict(color='orange', width=1.5), name='Trend (SMA20)'))
 
         fig.update_layout(
-            template="plotly_dark",
             height=600,
             title=f"{selected_ticker} - TEKNİK GÖRÜNÜM",
-            xaxis_rangeslider_visible=False
+            xaxis_rangeslider_visible=False,
+            # 'plotly_dark' temasını kaldırdım, standart (beyaz/uyumlu) tema gelecek.
         )
         st.plotly_chart(fig, use_container_width=True)
         
-        # Karar Destek Kutusu
         if rsi < 30 and price > sma:
-            st.success("✅ **SİNYAL: GÜÇLÜ ALIM FIRSATI** (Trend yukarı, fiyat ucuzlamış!)")
+            st.success("✅ **SİNYAL: GÜÇLÜ ALIM FIRSATI**")
         elif rsi > 75:
-            st.error("⚠️ **SİNYAL: KÂR ALMA BÖLGESİ** (Fiyat çok şişti, düzeltme gelebilir!)")
+            st.error("⚠️ **SİNYAL: KÂR ALMA BÖLGESİ**")
         else:
-            st.info("ℹ️ **SİNYAL: BEKLEME MODU** (Fiyat dengeleniyor, acele etme.)")
+            st.info("ℹ️ **SİNYAL: BEKLEME MODU**")
             
     else:
-        st.error("Piyasa verisi alınamadı. Ticker sembolünü kontrol et.")
+        st.error("Veri yok.")
 
 except Exception as e:
     st.error(f"Sistem Hatası: {e}")
 
-# --- 6. CANLI DÖNGÜ ---
-st.caption(f"Son Güncelleme: {datetime.now().strftime('%H:%M:%S')}")
+# --- 6. DÖNGÜ ---
 time.sleep(refresh_rate)
 st.rerun()
