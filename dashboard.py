@@ -31,6 +31,10 @@ COINS = {
 
 # --- 3. TEKNİK ANALİZ MOTORU ---
 def calculate_indicators(df):
+    # Veri setini temizle (Olası MultiIndex sorununa karşı)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.droplevel(1) 
+
     # SMA 20 (Trend Yönü)
     df['SMA20'] = df['Close'].rolling(window=20).mean()
     
@@ -50,28 +54,37 @@ refresh_rate = st.sidebar.slider("Yenileme (Sn)", 10, 60, 30)
 # --- 5. ANA EKRAN & VERİ ---
 st.title(f"⚔️ {COINS[selected_ticker]}")
 
-# Veri Çekme (Son 5 gün, 15dk periyot - Trendi görmek için)
+# Veri Çekme
 try:
+    # Progress barı kapatıyoruz
     df = yf.download(selected_ticker, period="5d", interval="15m", progress=False)
     
     if not df.empty:
         df = calculate_indicators(df)
+        
+        # Son verileri alırken .iloc kullanarak satıra iniyoruz
         last_bar = df.iloc[-1]
         prev_bar = df.iloc[-2]
         
-        # Anlık Değerler
+        # --- KRİTİK DÜZELTME: Her veriyi zorla float'a çeviriyoruz ---
         price = float(last_bar['Close'])
+        prev_price = float(prev_bar['Close'])
         rsi = float(last_bar['RSI'])
         sma = float(last_bar['SMA20'])
-        day_high = float(df['High'].tail(96).max()) # Son 24 saat (15dk x 96 bar)
         
-        # Sinyal Mantığı (Basit ve Ölümcül)
+        # Günlük zirve hesabı
+        day_high = float(df['High'].tail(96).max()) 
+        
+        # Yüzdelik Değişim Hesabı
+        degisim = ((price - prev_price) / prev_price) * 100
+        
+        # Sinyal Mantığı
         trend = "YUKARI 🚀" if price > sma else "AŞAĞI 🔻"
         rsi_durum = "AŞIRI ALIM (Satış Riski)" if rsi > 70 else "AŞIRI SATIM (Fırsat)" if rsi < 30 else "NÖTR"
         
         # --- METRİKLER ---
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("FİYAT", f"${price:,.2f}", f"%{((price - prev_bar['Close'])/prev_bar['Close']*100):.2f}")
+        col1.metric("FİYAT", f"${price:,.2f}", f"%{degisim:.2f}")
         col2.metric("TREND (SMA20)", trend, f"${sma:,.2f}")
         col3.metric("RSI GÜCÜ", f"{rsi:.1f}", rsi_durum)
         col4.metric("24SAAT ZİRVE", f"${day_high:,.2f}")
