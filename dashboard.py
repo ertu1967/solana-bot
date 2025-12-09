@@ -1,95 +1,114 @@
 import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
+import pandas as pd
 import time
 from datetime import datetime
 
-# --- 1. AYARLAR ---
-st.set_page_config(page_title="WAR ROOM - 24/7", layout="wide", page_icon="🦅")
+# --- 1. AYARLAR & STİL ---
+st.set_page_config(page_title="WAR ROOM - ELITE", layout="wide", page_icon="🦁")
 
-# CSS: Patron Teması
+# CSS: Simsiyah, Zengin ve Net
 st.markdown("""
 <style>
-    .metric-card {background-color: #0e1117; border: 1px solid #333; padding: 20px; border-radius: 10px; text-align: center;}
-    .big-font {font-size: 24px; font-weight: bold; color: #ffd700;}
+    .stApp {background-color: #000000;}
+    .metric-card {background-color: #111; border: 1px solid #333; padding: 15px; border-radius: 8px;}
+    h1, h2, h3 {color: #ffffff; font-family: 'Arial Black', sans-serif;}
+    .stSelectbox label {color: #f0f0f0; font-weight: bold;}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. COIN AYARLARI ---
-COIN_CONFIG = {
-    "SOL-USD": {"risk": 0.18, "name": "SOLANA"},
-    "ETH-USD": {"risk": 0.12, "name": "ETHEREUM"},
-    "SUI-USD": {"risk": 0.25, "name": "SUI"},
-    "AVAX-USD": {"risk": 0.20, "name": "AVALANCHE"},
-    "APT-USD": {"risk": 0.28, "name": "APTOS"},
-    "NEAR-USD": {"risk": 0.22, "name": "NEAR PROTOCOL"}
+# --- 2. ZENGİN PORTFÖY LİSTESİ ---
+COINS = {
+    "BTC-USD": "BITCOIN (KRAL)",
+    "ETH-USD": "ETHEREUM (PRENS)",
+    "SOL-USD": "SOLANA (HIZ)",
+    "RENDER-USD": "RENDER (GÖZBEBEĞİ)",
+    "AVAX-USD": "AVALANCHE (KALE)",
+    "FET-USD": "FET AI (ZEKA)",
+    "LINK-USD": "CHAINLINK (KÖPRÜ)"
 }
 
-# --- 3. YAN MENÜ ---
-st.sidebar.title("🦅 GÖZCÜ KULESİ")
-symbol = st.sidebar.selectbox("VARLIK SEÇ", list(COIN_CONFIG.keys()))
-refresh_rate = st.sidebar.slider("Yenileme Hızı (Sn)", 10, 300, 30)
+# --- 3. TEKNİK ANALİZ MOTORU ---
+def calculate_indicators(df):
+    # SMA 20 (Trend Yönü)
+    df['SMA20'] = df['Close'].rolling(window=20).mean()
+    
+    # RSI 14 (Aşırı Alım/Satım)
+    delta = df['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+    return df
 
-# Risk Ayarı (Otomatik gelir ama elle değişebilirsin)
-default_risk = int(COIN_CONFIG[symbol]["risk"] * 100)
-risk_input = st.sidebar.slider("Risk Limiti (%)", 1, 40, default_risk) / 100
+# --- 4. YAN MENÜ ---
+st.sidebar.markdown("## 🦅 KOMUTA MERKEZİ")
+selected_ticker = st.sidebar.selectbox("HEDEF SEÇ", list(COINS.keys()), format_func=lambda x: COINS[x])
+refresh_rate = st.sidebar.slider("Yenileme (Sn)", 10, 60, 30)
 
-st.title(f"⚔️ {COIN_CONFIG[symbol]['name']} - ANALİZ")
+# --- 5. ANA EKRAN & VERİ ---
+st.title(f"⚔️ {COINS[selected_ticker]}")
 
-# --- 4. AKILLI VERİ ANALİZİ ---
-def get_analysis():
-    # Son 24 saatin verisini çek (interval 5m)
-    # Bu sayede sen uyurken olan zirveyi de görür.
-    df = yf.download(symbol, period="1d", interval="5m", progress=False)
+# Veri Çekme (Son 5 gün, 15dk periyot - Trendi görmek için)
+try:
+    df = yf.download(selected_ticker, period="5d", interval="15m", progress=False)
     
     if not df.empty:
-        # Son kapanış fiyatı
-        current_price = float(df['Close'].iloc[-1])
+        df = calculate_indicators(df)
+        last_bar = df.iloc[-1]
+        prev_bar = df.iloc[-2]
         
-        # GÜNÜN ZİRVESİ (High Water Mark)
-        # Bot kapalı olsa bile veriden "Günün En Yükseği"ni bulur.
-        day_high = float(df['High'].max())
+        # Anlık Değerler
+        price = float(last_bar['Close'])
+        rsi = float(last_bar['RSI'])
+        sma = float(last_bar['SMA20'])
+        day_high = float(df['High'].tail(96).max()) # Son 24 saat (15dk x 96 bar)
         
-        return df, current_price, day_high
-    return None, 0, 0
+        # Sinyal Mantığı (Basit ve Ölümcül)
+        trend = "YUKARI 🚀" if price > sma else "AŞAĞI 🔻"
+        rsi_durum = "AŞIRI ALIM (Satış Riski)" if rsi > 70 else "AŞIRI SATIM (Fırsat)" if rsi < 30 else "NÖTR"
+        
+        # --- METRİKLER ---
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("FİYAT", f"${price:,.2f}", f"%{((price - prev_bar['Close'])/prev_bar['Close']*100):.2f}")
+        col2.metric("TREND (SMA20)", trend, f"${sma:,.2f}")
+        col3.metric("RSI GÜCÜ", f"{rsi:.1f}", rsi_durum)
+        col4.metric("24SAAT ZİRVE", f"${day_high:,.2f}")
 
-# --- 5. EKRAN ---
-df, current_price, day_high = get_analysis()
+        # --- GRAFİK ---
+        fig = go.Figure()
 
-if df is not None:
-    # Stop seviyesini günün zirvesine göre hesapla
-    stop_price = day_high * (1 - risk_input)
-    
-    # Metrikler
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("ANLIK FİYAT", f"${current_price:.2f}")
-    c2.metric("24SAAT ZİRVE", f"${day_high:.2f}", help="Sen yokken görülen en yüksek seviye")
-    c3.metric("STOP SEVİYESİ", f"${stop_price:.2f}", delta=f"-{risk_input*100:.0f}%", delta_color="inverse")
-    
-    with c4:
-        if current_price <= stop_price:
-            st.error("🚨 STOP PATLADI! SATIŞ BÖLGESİ")
+        # Mumlar
+        fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'],
+                                     low=df['Low'], close=df['Close'], name='Fiyat'))
+        
+        # Trend Çizgisi
+        fig.add_trace(go.Scatter(x=df.index, y=df['SMA20'], line=dict(color='cyan', width=1.5), name='Trend (SMA20)'))
+
+        fig.update_layout(
+            template="plotly_dark",
+            height=600,
+            title=f"{selected_ticker} - TEKNİK GÖRÜNÜM",
+            xaxis_rangeslider_visible=False
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Karar Destek Kutusu
+        if rsi < 30 and price > sma:
+            st.success("✅ **SİNYAL: GÜÇLÜ ALIM FIRSATI** (Trend yukarı, fiyat ucuzlamış!)")
+        elif rsi > 75:
+            st.error("⚠️ **SİNYAL: KÂR ALMA BÖLGESİ** (Fiyat çok şişti, düzeltme gelebilir!)")
         else:
-            pct_to_stop = ((current_price - stop_price) / current_price) * 100
-            st.success(f"GÜVENLİ ✅ (Stop'a %{pct_to_stop:.1f} var)")
+            st.info("ℹ️ **SİNYAL: BEKLEME MODU** (Fiyat dengeleniyor, acele etme.)")
+            
+    else:
+        st.error("Piyasa verisi alınamadı. Ticker sembolünü kontrol et.")
 
-    # Grafik
-    fig = go.Figure(data=[go.Candlestick(x=df.index,
-                    open=df['Open'], high=df['High'],
-                    low=df['Low'], close=df['Close'])])
-    
-    # Stop Çizgisi
-    fig.add_hline(y=stop_price, line_dash="dash", line_color="red", annotation_text="STOP")
-    fig.update_layout(title=f"{symbol} Son 24 Saat Performansı", template="plotly_dark", height=500, margin=dict(l=0,r=0,t=30,b=0))
-    st.plotly_chart(fig, use_container_width=True)
+except Exception as e:
+    st.error(f"Sistem Hatası: {e}")
 
-    # Son Güncelleme Zamanı
-    st.caption(f"Son Kontrol: {datetime.now().strftime('%H:%M:%S')} (Otomatik Yenilenir)")
-
-else:
-    st.error("Veri çekilemedi. Piyasa bağlantısını kontrol et.")
-
-# --- 6. DÖNGÜ ---
-# Sayfayı canlı tutar
+# --- 6. CANLI DÖNGÜ ---
+st.caption(f"Son Güncelleme: {datetime.now().strftime('%H:%M:%S')}")
 time.sleep(refresh_rate)
 st.rerun()
