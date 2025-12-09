@@ -1,115 +1,49 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import time
-from datetime import datetime
 
-# --- 1. AYARLAR ---
-st.set_page_config(page_title="WAR ROOM - 10 DAY SNIPER", layout="wide", page_icon="⚡")
+# --- AYARLAR ---
+st.set_page_config(page_title="GERÇEKÇİ DİP ORANLARI", layout="wide", page_icon="🧮")
 
-# --- 2. HEDEF LİSTESİ ---
-ASSETS = {
-    "BTC-USD":  {"name": "BITCOIN",  "type": "KRAL 🛡️"},
-    "ETH-USD":  {"name": "ETHEREUM", "type": "PRENS 💠"},
-    "SOL-USD":  {"name": "SOLANA",   "type": "HIZLI ⚡"},
-    "RENDER-USD": {"name": "RENDER", "type": "DELİ FİŞEK 🎨"}
-}
+# Senin Takip Ettiklerin
+COINS = ["BTC-USD", "ETH-USD", "SOL-USD", "RENDER-USD", "AVAX-USD"]
 
-# --- 3. MOTOR VE ZEKA ---
-def get_usd_try():
-    try:
-        return yf.Ticker("TRY=X").history(period="1d")['Close'].iloc[-1]
-    except:
-        return 34.50
-
-def analyze_asset_character(ticker, usd_try):
-    # 1. KARAKTER ANALİZİ (Son 6 Ayın Düşüş Huyunu Öğren)
+def calculate_ideal_dip(ticker):
+    # Son 6 Ayın Verisi
     df = yf.download(ticker, period="6mo", interval="1d", progress=False)
-    
-    if df.empty: return None
+    if df.empty: return 0, 0
     if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.droplevel(1)
-
-    # Düşüşleri Hesapla
-    rolling_max = df['High'].cummax()
-    drawdown = (df['Low'] - rolling_max) / rolling_max
     
-    # Ortalama Anlamlı Düşüşü Bul (%5 üzeri düşüşler)
-    significant_dips = drawdown[drawdown < -0.05]
+    # Zirveden Düşüşleri Hesapla (Drawdown)
+    rolling_max = df['High'].cummax()
+    daily_drawdown = (df['Low'] - rolling_max) / rolling_max
+    
+    # Gürültüyü At: Sadece %5'ten büyük, %40'tan küçük düşüşleri al (Çöküşleri değil düzeltmeleri arıyoruz)
+    significant_dips = daily_drawdown[(daily_drawdown < -0.05) & (daily_drawdown > -0.40)]
     
     if len(significant_dips) > 0:
-        avg_drawdown = significant_dips.mean() 
+        # Ortalama Düşüş
+        avg_dip = abs(significant_dips.mean()) * 100
+        # Maksimum "Normal" Düşüş (En kötü senaryo değil, sık görülen dip)
+        common_max_dip = abs(significant_dips.quantile(0.2)) * 100 
     else:
-        avg_drawdown = -0.10 # Varsayılan
+        avg_dip = 10 # Veri yoksa standart
+        common_max_dip = 15
         
-    drop_pct = abs(avg_drawdown)    # Örn: 0.15
-    multiplier = 1 - drop_pct       # Örn: 0.85
+    return avg_dip, common_max_dip
 
-    # 2. HEDEF ANALİZİ (GÜNCELLEME BURADA: SON 10 GÜN)
-    current_price_usd = df['Close'].iloc[-1]
-    
-    # --- KRİTİK DEĞİŞİKLİK: .tail(10) ---
-    local_peak_usd = df['High'].tail(10).max() 
-    
-    target_entry_usd = local_peak_usd * multiplier
-    
-    # Zirveden şu anki uzaklık
-    distance_from_peak = ((current_price_usd - local_peak_usd) / local_peak_usd) * 100
-    
-    return {
-        "price_tl": current_price_usd * usd_try,
-        "peak_tl": local_peak_usd * usd_try,
-        "target_tl": target_entry_usd * usd_try,
-        "drop_pct": drop_pct * 100,     
-        "multiplier": multiplier,       
-        "distance": distance_from_peak, 
-        "is_buy": distance_from_peak <= (avg_drawdown * 100)
-    }
+st.title("🧮 SENİN ORANLAR vs PİYASA GERÇEĞİ")
+st.info("Bu tablo, son 6 ayda 'Alım Fırsatı' veren ortalama düşüşleri gösterir.")
 
-# --- 4. ARAYÜZ ---
-usd_try = get_usd_try()
+results = []
+for ticker in COINS:
+    avg, max_dip = calculate_ideal_dip(ticker)
+    results.append({
+        "COIN": ticker.replace("-USD", ""),
+        "ORTALAMA DÜŞÜŞ (%)": f"%{avg:.1f}",
+        "İDEAL ALIM NOKTASI": f"-%{max_dip:.1f} (Daha Güvenli)",
+        "YORUM": "AĞIR VAKUR" if avg < 15 else "ÇOK OYNAK"
+    })
 
-st.title("⚡ 10 GÜNLÜK HIZLI AVCI MODU")
-st.markdown(f"**KUR:** ₺{usd_try:.2f} | **STRATEJİ:** Sadece son **10 GÜNÜN** zirvesini baz alıyoruz. Eski hikayeler çöp.")
-st.markdown("---")
-
-cols = st.columns(4)
-
-for i, (ticker, info) in enumerate(ASSETS.items()):
-    with cols[i]:
-        data = analyze_asset_character(ticker, usd_try)
-        
-        if data:
-            st.subheader(f"{info['name']}")
-            st.caption(f"{info['type']}")
-            
-            # Dinamik Oran
-            st.metric("KARAKTER (Beklenen Düşüş)", f"%{data['drop_pct']:.1f}", help="Bu coinin huyu bu kadar düşmek.")
-            
-            st.markdown("---")
-            
-            # Fiyatlar
-            st.markdown(f"**10 GÜNLÜK ZİRVE:** ₺{data['peak_tl']:,.0f}")
-            st.markdown(f"**ŞU AN:** ₺{data['price_tl']:,.0f}")
-            
-            # Hedef Analizi
-            target_color = "green" if data['is_buy'] else "red"
-            st.markdown(f":{target_color}[**HEDEF GİRİŞ:**] **₺{data['target_tl']:,.0f}**")
-            
-            # Çubuk
-            progress_val = min(1.0, abs(data['distance']) / data['drop_pct'])
-            st.progress(progress_val)
-            
-            # Karar
-            if data['is_buy']:
-                st.success(f"🚀 **SALDIR!**\n\nFiyat 10 günlük zirveden beklenen %{data['drop_pct']:.1f} düşüşü yaptı.")
-            else:
-                kalan = data['price_tl'] - data['target_tl']
-                st.error(f"✋ **BEKLE.**\n\nFırsata **₺{kalan:,.0f}** var.")
-                st.caption(f"Şu anki düşüş: %{data['distance']:.1f}")
-                
-        else:
-            st.error("Veri Yok")
-
-st.markdown("---")
-if st.button("PİYASAYI TARA (YENİLE)"):
-    st.rerun()
+df_res = pd.DataFrame(results)
+st.table(df_res)
